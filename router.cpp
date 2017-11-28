@@ -6,6 +6,7 @@ using namespace std;
 
 int router::startRouter(ofstream &ostr) {
     pid_t mypid = getpid();
-    ostr << mypid;
+    cout << "writing pid: " << mypid << " to kill file." << endl;
+    ostr << mypid << endl;
     cout << mypid << ": I'm a router" << endl;
 }

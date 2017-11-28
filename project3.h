@@ -14,6 +14,8 @@ class manager {
 public:
     static int usage();
 
+    static int manage(ofstream &ostr);
+
     const char *killFile = "kill.txt";
 };
 #endif //PROJECT3_PROJECT3_H

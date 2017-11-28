@@ -15,6 +15,12 @@ int manager::usage() {
     return -1;
 }
 
+int manager::manage(ofstream &ostr) {
+    pid_t mypid = getpid();
+    ostr << mypid << endl;
+    cout << mypid << ": manager wrote pid to killFile" << endl;
+}
+
 int check(const string &s) {
     // check that the values are valid as int
     int n;
@@ -89,13 +95,21 @@ int main(int argc, char **argv) {
             r.startRouter(ostr);
             exit(0);
         } else if (pid > 0) {
-            // do manager stuff
+            // do manager stuff (only stuff for each router)
+
         }
     }
     while ((wpid = wait(&status)) > 0);
     cout << getpid() << ": All finished, closing up" << endl;
+    m.manage(ostr);
     ostr.close();
     ifstream istrKill(m.killFile);
+    string killID;
+    while (!istrKill.eof()) {
+        istrKill >> killID;
+        int killnum = check(killID);
+        kill(killnum, 0);
+    }
 
     return 0;
 }
