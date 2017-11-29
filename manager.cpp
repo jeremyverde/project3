@@ -33,7 +33,7 @@ void manager::writeHeader(ofstream &o) {
     char stamp[100];
     manager::getTime(stamp, sizeof(stamp));
     o << "Manager Log File" << endl;
-    o << "Log File Created: " << stamp << endl;
+    o << "Log File Created: " << stamp << endl << endl;
 }
 
 // based on example at: https://stackoverflow.com/questions/212528/get-the-ip-address-of-the-machine
@@ -66,7 +66,7 @@ void GetPrimaryIp(char *buffer, socklen_t buflen) {
 }
 
 // get sockaddr, IPv4 or IPv6:
-void *get_in_addr(struct sockaddr *sa) {
+void *manager::get_in_addr(struct sockaddr *sa) {
     if (sa->sa_family == AF_INET) {
         return &(((struct sockaddr_in *) sa)->sin_addr);
     }
@@ -94,8 +94,13 @@ int manager::manage(ofstream &ostr, int index) {
     char stamp[100];
     manager::getTime(stamp, sizeof(stamp));
     outMan << stamp << "[Manager] TCP Server Started" << endl;
-    outMan << stamp << "[Manager] IP: " << buffer << " Port: " << PORT << " Routers: " << index << endl;
+    outMan << stamp << "[Manager] IP: " << buffer << "  Port: " << PORT << "    Routers: " << index << endl;
+    fd_set master{};
+    fd_set read_fds{};
+    int fdmax;
     bool sendit = false; // keeps track of whether or not it's my turn to send
+    bool ready = false;
+    bool done = false;
     int listener = 0;     // listening socket descriptor
     int new_fd = 0;        // newly accept()ed socket descriptor
     struct sigaction sa{};
@@ -103,12 +108,15 @@ int manager::manage(ofstream &ostr, int index) {
     struct sockaddr_storage their_addr{};
     int id = 0;
     socklen_t sin_size;
+    socklen_t addrlen;
     char s[INET6_ADDRSTRLEN];
     int yes = 1;        // for setsockopt() SO_REUSEADDR, below
     int rv;
     ssize_t nbytes;
-
     struct addrinfo hints{}, *ai, *p;
+
+    FD_ZERO(&master);    // clear the master and temp sets
+    FD_ZERO(&read_fds);
 
     outMan << stamp << "[Manager] Binding Socket" << endl;
     memset(&hints, 0, sizeof hints);
@@ -148,6 +156,8 @@ int manager::manage(ofstream &ostr, int index) {
         perror("listen");
         exit(1);
     }
+    FD_SET(listener, &master);
+    fdmax = listener;
 
     sa.sa_handler = sigchld_handler; // reap all dead processes
     sigemptyset(&sa.sa_mask);
@@ -159,28 +169,63 @@ int manager::manage(ofstream &ostr, int index) {
     manager::getTime(stamp, sizeof(stamp));
     outMan << stamp << "[Manager] waiting for connections..." << endl;
 
-    for (int j = 0; j < index; j++) {  // main accept() loop
-        sin_size = sizeof their_addr;
-        new_fd = accept(listener, (struct sockaddr *) &their_addr, &sin_size);
-        if (new_fd == -1) {
-            perror("accept");
-            continue;
+    int count = 0;
+    for (;;) {  // main accept() loop
+        read_fds = master; // copy it
+        if (select(fdmax + 1, &read_fds, nullptr, nullptr, nullptr) == -1) {
+            perror("select");
+            exit(4);
         }
+        for (int i = 0; i <= fdmax; i++) {
+            if (FD_ISSET(i, &read_fds)) { // we got one!!
+                if (i == listener) {
+                    // handle new connections
+                    addrlen = sizeof their_addr;
+                    new_fd = accept(listener,
+                                    (struct sockaddr *) &their_addr,
+                                    &addrlen);
 
-        inet_ntop(their_addr.ss_family,
-                  get_in_addr((struct sockaddr *) &their_addr),
-                  s, sizeof s);
-        manager::getTime(stamp, sizeof(stamp));
-        outMan << stamp << "[Manager] got connection from " << s << endl;
-        for (int i = 0; i < 2; i++) {
-            if (sendit) {
-                memset(&buffer, 0, sizeof(buffer));
-                string b = to_string(id);
-                for (int k = 0; k < b.length(); k++) {
-                    buffer[k] = b[k];
+                    if (new_fd == -1) {
+                        perror("accept");
+                    } else {
+                        FD_SET(new_fd, &master); // add to master set
+                        manager::getTime(stamp, sizeof(stamp));
+                        outMan << stamp << "[Manager] Connected to router " << count << endl;
+                        if (new_fd > fdmax) {    // keep track of the max
+                            fdmax = new_fd;
+                            count++;
+                            if (count == index) {
+                                if (!done) {
+                                    done = true;
+                                    manager::getTime(stamp, sizeof(stamp));
+                                    outMan << stamp << "[Manager] All routers connected" << endl;
+                                }
+                            }
+                        }
+                    }
                 }
-                manager::getTime(stamp, sizeof(stamp));
-                outMan << stamp << "[Manager] Sending id to router " << id << endl;
+            }
+        }
+        ready = false;
+        inet_ntop(their_addr.ss_family,
+                  manager::get_in_addr((struct sockaddr *) &their_addr),
+                  s, sizeof s);
+        for (int i = 0; i <= 3; i++) {
+            if (sendit) {
+                if (ready) {
+                    memset(&buffer, 0, sizeof(buffer));
+                    string r = "ready";
+                    for (int k = 0; k < r.length(); k++) {
+                        buffer[k] = r[k];
+                    }
+                } else {
+                    memset(&buffer, 0, sizeof(buffer));
+                    string b = to_string(id);
+                    for (int k = 0; k < b.length(); k++) {
+                        buffer[k] = b[k];
+                    }
+                    ready = true;
+                }
                 manager::getTime(stamp, sizeof(stamp));
                 outMan << stamp << "[Manager] sending: " << buffer << endl;
                 if (send(new_fd, buffer, sizeof(buffer), 0) == -1) {
@@ -189,7 +234,6 @@ int manager::manage(ofstream &ostr, int index) {
                     outMan.close();
                     exit(0);
                 }
-                id++;
                 sendit = false;
             } else {
                 sendit = true;
@@ -209,7 +253,7 @@ int manager::manage(ofstream &ostr, int index) {
                 }
             }
         }
-        close(new_fd);
+        id++;
     }
 }
 

@@ -1,8 +1,8 @@
 #ifndef PROJECT3_PROJECT3_H
 #define PROJECT3_PROJECT3_H
 
-#define MAXDATASIZE 1024 // max number of bytes we can get at once
-#define PORT "9001"  // the port users will be connecting to
+#define MAXDATASIZE 1024 // max number of bytes for buffers
+#define PORT "9001"     // the tcp port routers will be connecting to
 #define BACKLOG 100     // how many pending connections queue will hold
 
 #include <fstream>
@@ -24,6 +24,12 @@ using namespace std;
 class router {
 public:
     int startRouter(ofstream &o);
+
+    static void *get_in_addr(struct sockaddr *sa);
+
+    int get_in_port(struct sockaddr *sa);
+
+    void udpListen(ofstream &o, string &s);
 
     void getTime(char *stamp, int len);
 
@@ -48,6 +54,8 @@ public:
     };
 
     static int usage();
+
+    static void *get_in_addr(struct sockaddr *sa);
 
     static void getTime(char *tB, int len);
 
