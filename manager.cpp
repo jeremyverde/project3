@@ -95,12 +95,22 @@ int manager::manage(ofstream &ostr, int index) {
     manager::getTime(stamp, sizeof(stamp));
     outMan << stamp << "[Manager] TCP Server Started" << endl;
     outMan << stamp << "[Manager] IP: " << buffer << "  Port: " << PORT << "    Routers: " << index << endl;
+
     fd_set master{};
     fd_set read_fds{};
     int fdmax;
-    bool sendit = false; // keeps track of whether or not it's my turn to send
-    bool ready = false;
-    bool done = false;
+
+    // data structure to maintain each router's info
+    vector<node> routers;
+    struct node temp{};
+
+    // all tracked stages
+    bool allCon = false;
+    bool allInfo = false;
+    bool allReady = false;
+    bool LBDone = false;
+    bool dijkDone = false;
+
     int listener = 0;     // listening socket descriptor
     int new_fd = 0;        // newly accept()ed socket descriptor
     struct sigaction sa{};
@@ -189,71 +199,67 @@ int manager::manage(ofstream &ostr, int index) {
                         perror("accept");
                     } else {
                         FD_SET(new_fd, &master); // add to master set
-                        manager::getTime(stamp, sizeof(stamp));
-                        outMan << stamp << "[Manager] Connected to router " << count << endl;
                         if (new_fd > fdmax) {    // keep track of the max
                             fdmax = new_fd;
-                            count++;
-                            if (count == index) {
-                                if (!done) {
-                                    done = true;
-                                    manager::getTime(stamp, sizeof(stamp));
-                                    outMan << stamp << "[Manager] All routers connected" << endl;
-                                }
+                            temp.fd = i;
+                            temp.id = to_string(count).c_str();
+                            routers.push_back(temp);
+                        }
+                        manager::getTime(stamp, sizeof(stamp));
+                        outMan << stamp << "[Manager] Router " << count << " connected" << endl;
+                        count++;
+                    }
+                } else {
+                    memset(&buffer, 0, sizeof(buffer));
+                    if (!allCon) {
+                        if ((nbytes = recv(new_fd, buffer, sizeof(buffer), 0)) <= 0) {
+                            // got error or connection closed by server
+                            if (nbytes == 0) {
+                                // connection closed
+                                printf("[Manager] router socket closed.");
+                            } else {
+                                perror("recv");
                             }
+                            close(i);
+                            FD_CLR(i, &master);
+                        } else {
+
+                        }
+                        //id++;
+                    } else if (!allInfo) {
+                        /*TODO construct actual packet here*/
+                        string temp = "ack";
+                        for (int k = 0; k < temp.length(); k++) {
+                            buffer[k] = temp[k];
+                        }
+                        if (send(i, buffer, sizeof(buffer), 0) == -1) {
+                            close(i);
+                            cerr << "[Manager] router closed prematurely, exiting" << endl;
+                            exit(3);
+                        } else {
+                            manager::getTime(stamp, sizeof(stamp));
+                            outMan << stamp << "[Manager] Sent: " << buffer << endl;
+                        }
+                        count++;
+                        if (count == index) {
+                            allInfo = true;
+                            manager::getTime(stamp, sizeof(stamp));
+                            outMan << stamp << "[Manager] All router Info Sent" << endl;
+                            sleep(1);
+                            cout << "Temp Finish" << endl;
+                            exit(0);
                         }
                     }
                 }
             }
         }
-        ready = false;
-        inet_ntop(their_addr.ss_family,
-                  manager::get_in_addr((struct sockaddr *) &their_addr),
-                  s, sizeof s);
-        for (int i = 0; i <= 3; i++) {
-            if (sendit) {
-                if (ready) {
-                    memset(&buffer, 0, sizeof(buffer));
-                    string r = "ready";
-                    for (int k = 0; k < r.length(); k++) {
-                        buffer[k] = r[k];
-                    }
-                } else {
-                    memset(&buffer, 0, sizeof(buffer));
-                    string b = to_string(id);
-                    for (int k = 0; k < b.length(); k++) {
-                        buffer[k] = b[k];
-                    }
-                    ready = true;
-                }
-                manager::getTime(stamp, sizeof(stamp));
-                outMan << stamp << "[Manager] sending: " << buffer << endl;
-                if (send(new_fd, buffer, sizeof(buffer), 0) == -1) {
-                    perror("send");
-                    close(new_fd);
-                    outMan.close();
-                    exit(0);
-                }
-                sendit = false;
-            } else {
-                sendit = true;
-                memset(buffer, 0, sizeof(buffer));
-                if ((nbytes = recv(new_fd, buffer, MAXDATASIZE, 0)) <= 0) {
-                    // got error or connection closed by server
-                    if (nbytes == 0) {
-                        // connection closed
-                        exit(2);
-                    } else {
-                        perror("recv");
-                        exit(6);
-                    }
-                } else {
-                    manager::getTime(stamp, sizeof(stamp));
-                    outMan << stamp << "[Manager] recv: " << buffer << endl;
-                }
-            }
+        if (!allCon && count == index) {
+            manager::getTime(stamp, sizeof(stamp));
+            outMan << stamp << "[Manager] All routers connected" << endl;
+            allCon = true;
+            count = 0;
+            //exit(0);
         }
-        id++;
     }
 }
 
@@ -358,9 +364,9 @@ int main(int argc, char **argv) {
             cout << "[Demo] error creating child process.. exiting" << endl;
             exit(1);
         } else if (pid == 0) { // This is the child process
-            router r = router();
+            router *r = new router();
             sleep(2);
-            r.startRouter(ostr);
+            r->startRouter(ostr);
             exit(0);
         } else if (pid > 0) {
             // do manager stuff (only stuff for each router)
@@ -377,6 +383,7 @@ int main(int argc, char **argv) {
         if (!istrKill.eof()) {
             int killnum = check(killID);
             kill(killnum, 0);
+            cout << "PID: " << killnum << " successfully terminated." << endl;
         }
     }
 

@@ -1,3 +1,4 @@
+#include <fcntl.h>
 #include "project3.h"
 
 using namespace std;
@@ -69,7 +70,7 @@ void router::udpListen(ofstream &o, string &portnum) {
         }
         int pN = get_in_port((struct sockaddr *) &servinfo);
         port = to_string(pN);
-        cout << "port number: " << port << endl;
+        //cout << "port number: " << port << endl;
         if (bind(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
             close(sockfd);
             perror("listener: bind");
@@ -101,7 +102,7 @@ void router::udpListen(ofstream &o, string &portnum) {
     buf[numbytes] = '\0';
     printf("listener: packet contains \"%s\"\n", buf);
 */
-    close(sockfd);
+    //close(sockfd);
 }
 
 // based on example at: https://stackoverflow.com/questions/212528/get-the-ip-address-of-the-machine
@@ -153,11 +154,10 @@ int router::startRouter(ofstream &ostr) {
     ostr << mypid << endl;
 
     // code based largely off of beej's guide example program, see README
-    int sok = 0;     // stone socket descriptor
-    //struct sockaddr_storage remoteaddr{}; // client address
+    int sok = 0;
     char buf[MAXDATASIZE];
     memset(&buf, 0, sizeof(buf));
-    ssize_t nbytes;
+    ssize_t nbytes = 0;
     string input;
     int yes = 1;        // for setsockopt() SO_REUSEADDR, below
     int status;
@@ -175,6 +175,7 @@ int router::startRouter(ofstream &ostr) {
 
 
     sleep(1);
+
     memset(&hints, 0, sizeof hints); // make sure the struct is empty
     hints.ai_family = AF_UNSPEC;     // don't care IPv4 or IPv6
     hints.ai_socktype = SOCK_STREAM; // TCP stream sockets
@@ -199,6 +200,13 @@ int router::startRouter(ofstream &ostr) {
         getTime(stamp, sizeof(stamp));
         out << stamp << "[Router: " << mypid << "] Connected." << endl;
     }
+    // Test if the socket is in non-blocking mode:
+    if (fcntl(sok, F_GETFL) & O_NONBLOCK) {
+        // socket is non-blocking
+        cout << "socket is not blocking, set to blocking mode" << endl;
+    } else {
+        cout << "socket is blocking" << endl;
+    }
 
     freeaddrinfo(ai);
 
@@ -220,8 +228,8 @@ int router::startRouter(ofstream &ostr) {
                     exit(6);
                 }
                 sendit = false;
+                sleep(1);
             } else {
-                sendit = true;
                 ready = false;
                 memset(buf, 0, sizeof(buf));
                 if ((nbytes = recv(sok, buf, MAXDATASIZE, 0)) <= 0) {
@@ -234,15 +242,17 @@ int router::startRouter(ofstream &ostr) {
                         }
                         return 0;
                     } else {
-                        perror("recv");
+                        printf("recv error: %s\n", strerror(errno));
                         exit(6);
                     }
                 } else {
                     getTime(stamp, sizeof(stamp));
                     out << stamp << "[Router: " << mypid << "] recv: " << buf << endl;
                     packet = buf;
-                    if (packet == "ready") {
+                    if (packet == "ack") {
+                        sendit = true;
                         ready = true;
+                        exit(0);
                     }
                 }
             }

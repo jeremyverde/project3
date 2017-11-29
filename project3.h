@@ -53,6 +53,12 @@ public:
         int destID = 0;
     };
 
+    struct node {
+        const char *id;
+        char *port;
+        int fd = 0;
+    };
+
     static int usage();
 
     static void *get_in_addr(struct sockaddr *sa);
