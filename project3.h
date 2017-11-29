@@ -1,7 +1,12 @@
 #ifndef PROJECT3_PROJECT3_H
 #define PROJECT3_PROJECT3_H
 
+#define MAXDATASIZE 1024 // max number of bytes for buffers
+#define PORT "9001"     // the tcp port routers will be connecting to
+#define BACKLOG 100     // how many pending connections queue will hold
+
 #include <fstream>
+#include <sys/time.h>
 #include <iostream>
 #include <zconf.h>
 #include <wait.h>
@@ -12,19 +17,26 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <cassert>
-
+#include <chrono>
 
 using namespace std;
 
 class router {
 public:
-    int startRouter(ofstream &o, const char *port);
+    int startRouter(ofstream &o);
+
+    static void *get_in_addr(struct sockaddr *sa);
+
+    int get_in_port(struct sockaddr *sa);
+
+    void udpListen(ofstream &o, string &s);
+
+    void getTime(char *stamp, int len);
+
+    void writeHeader(ofstream &o);
 
     void GetPrimaryIp(char *buffer, size_t buflen);
 
-    void *get_in_addr(struct sockaddr *sa);
-
-#define MAXDATASIZE 100 // max number of bytes we can get at once
     bool debug = true;
 };
 
@@ -43,12 +55,16 @@ public:
 
     static int usage();
 
-    static int manage(ofstream &ostr);
+    static void *get_in_addr(struct sockaddr *sa);
+
+    static void getTime(char *tB, int len);
+
+    static void writeHeader(ofstream &o);
+
+    static int manage(ofstream &ostr, int i);
 
     const char *killFile = "kill.txt";
-
-#define PORT "9001"  // the port users will be connecting to
-#define BACKLOG 10     // how many pending connections queue will hold
+    int index{};
 };
 
 #endif //PROJECT3_PROJECT3_H
