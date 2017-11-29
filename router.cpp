@@ -49,132 +49,74 @@ int router::startRouter(ofstream &ostr, const char *port) {
     ostr << mypid << endl;
 
     // code based largely off of beej's guide example program, see README
-    int sockfd = 0;
+    int sok = 0;     // stone socket descriptor
+    //struct sockaddr_storage remoteaddr{}; // client address
+    char buf[MAXDATASIZE];
+    memset(buf, 0, sizeof(buf));
     ssize_t nbytes;
-    unsigned char buf[MAXDATASIZE];
-    struct addrinfo hints{}, *servinfo, *p;
-    int rv;
-    char s[INET6_ADDRSTRLEN];
-    bool sendit = false;
     string input;
-    const char *in;
-    uint16_t mLength;
-    memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    char buffer[128];
-    size_t buflen = 128;
-    GetPrimaryIp(buffer, buflen);
-    bool doneskies = false;
+    int yes = 1;        // for setsockopt() SO_REUSEADDR, below
+    int status;
+    struct addrinfo hints{}, *ai;// will point to the results
+    bool empty = true;
+    bool sendit = false;
+    GetPrimaryIp(buf, sizeof(buf));
+    const char *IP = buf;
 
-    if ((rv = getaddrinfo(buffer, port, &hints, &servinfo)) != 0) {
-        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
-        return 1;
+    memset(&hints, 0, sizeof hints); // make sure the struct is empty
+    hints.ai_family = AF_UNSPEC;     // don't care IPv4 or IPv6
+    hints.ai_socktype = SOCK_STREAM; // TCP stream sockets
+    hints.ai_flags = AI_PASSIVE;     // fill in my IP for me
+    cout << "[Router] connecting to IP: " << buf << " Port: " << PORT << endl;
+    if ((status = getaddrinfo(IP, PORT, &hints, &ai)) != 0) {
+        fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
+        exit(1);
     }
 
-    // loop through all the results and connect to the first we can
-    printf("router: connecting to manager\n");
-    for (p = servinfo; p != nullptr; p = p->ai_next) {
-        if ((sockfd = socket(p->ai_family, p->ai_socktype,
-                             p->ai_protocol)) == -1) {
-            perror("socket");
-            continue;
-        }
-        if (connect(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
-            close(sockfd);
-            perror("connect");
-            continue;
-        }
-        break;
+    sok = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+    if (sok < 0) {
+        // lose the pesky "address already in use" error message
+        setsockopt(sok, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
     }
 
-    if (p == nullptr) {
-        fprintf(stderr, "failed to connect\n");
-        return 2;
+    if ((connect(sok, ai->ai_addr, ai->ai_addrlen)) < 0) {
+        cerr << "connection failed" << endl;
+        return -1;
+    } else {
+        cout << "[Router] Connected." << endl;
     }
 
-    inet_ntop(p->ai_family, get_in_addr(p->ai_addr),
-              s, sizeof s);
-    printf("Connected to Manager at: %s\n", s);
+    freeaddrinfo(ai);
 
-    freeaddrinfo(servinfo); // all done with this structure
-
-    while (!doneskies) {
-        uint16_t vCheck = 0;
-        uint16_t lenCheck = 0;
+    while (true) {
         if (sendit) {
-            printf("You: ");
-            //getline(cin,input);
-            input = "hi";
-            mLength = static_cast<uint16_t>(input.length());
-            lenCheck = htons(mLength);
-            if (mLength > 140) {
-                printf("Input too long\n");
-                sendit = true;
-            } else {
-                in = input.c_str();
-                buf[0] = 1;
-                buf[1] = 201;
-                buf[3] = 140;
-                if (debug) printf("size of in: %d\n", static_cast<int>(strlen(in)));
-                for (unsigned int i = 0; i < strlen(in); i++) {
-                    buf[i + 4] = (unsigned char) in[i];
-                }
-                if (send(sockfd, buf, mLength + 4, 0) == -1) {
-                    perror("send");
-                    exit(6);
-                }
-                memset(buf, 0, sizeof(buf));
-                sendit = false;
+            memset(&buf, 0, sizeof(buf));
+            if (debug) {
+                cout << "[Router] sending: PORT" << endl;
             }
-            doneskies = true;
+            if (send(sok, "PORT", 4, 0) == -1) {
+                perror("send failed");
+                exit(6);
+            }
+            sendit = false;
         } else {
-            // first pull out version number
-            if ((nbytes = recv(sockfd, &vCheck, 2, 0)) <= 0) {
+            sendit = true;
+            memset(buf, 0, sizeof(buf));
+            if ((nbytes = recv(sok, buf, MAXDATASIZE, 0)) <= 0) {
                 // got error or connection closed by server
                 if (nbytes == 0) {
                     // connection closed
-                    printf("socket disconnected\n");
-                    exit(5);
+                    if (debug)
+                        printf("socket disconnected\n");
+                    return 0;
                 } else {
                     perror("recv");
                     exit(6);
                 }
             } else {
-                vCheck = ntohs(vCheck);
-                if (debug)
-                    printf("version: %d\n", vCheck);
-                if (vCheck != 457) printf("Incorrect version Number.\n");
-            }
-            if ((nbytes = recv(sockfd, &lenCheck, 2, 0)) <= 0) {
-                // got error or connection closed by server
-                if (nbytes == 0) {
-                    // connection closed
-                    printf("socket disconnected\n");
-                    exit(5);
-                } else {
-                    perror("recv");
-                    exit(6);
+                if (debug) {
+                    cout << "[Router] recv: " << buf << endl;
                 }
-            } else {
-                // set the message length
-                lenCheck = ntohs(lenCheck);
-            }
-            if ((nbytes = recv(sockfd, buf, sizeof(buf), 0)) <= 0) {
-                // got error or connection closed by server
-                if (nbytes == 0) {
-                    // connection closed
-                    printf("socket disconnected\n");
-                    exit(5);
-                } else {
-                    perror("recv");
-                    exit(6);
-                }
-            } else {
-                // print the message
-                printf("Friend: '%s'\n", buf);
-                memset(buf, 0, sizeof(buf));
-                sendit = true;
             }
         }
     }

@@ -5,6 +5,7 @@
 #include <iostream>
 #include <zconf.h>
 #include <wait.h>
+#include <vector>
 #include <sstream>
 #include <cstring>
 #include <sys/socket.h>
@@ -29,6 +30,17 @@ public:
 
 class manager {
 public:
+    struct link {
+        int sourceID = 0;
+        int destID = 0;
+        int cost = 0;
+    };
+
+    struct msg {
+        int sourceID = 0;
+        int destID = 0;
+    };
+
     static int usage();
 
     static int manage(ofstream &ostr);
@@ -38,4 +50,5 @@ public:
 #define PORT "9001"  // the port users will be connecting to
 #define BACKLOG 10     // how many pending connections queue will hold
 };
+
 #endif //PROJECT3_PROJECT3_H
