@@ -48,41 +48,45 @@ void *get_in_addr(struct sockaddr *sa) {
     return &(((struct sockaddr_in6 *) sa)->sin6_addr);
 }
 
+void sigchld_handler(int s) {
+    // waitpid() might overwrite errno, so we save and restore it:
+    int saved_errno = errno;
+
+    while (waitpid(-1, NULL, WNOHANG) > 0);
+
+    errno = saved_errno;
+}
+
 int manager::manage(ofstream &ostr) {
     pid_t mypid = getpid();
     ostr << mypid << endl;
     cout << mypid << ": manager wrote pid to killFile" << endl;
-    fd_set master{};    // master file descriptor list
     bool sendit = true; // keeps track of whether or not it's my turn to send
     int listener = 0;     // listening socket descriptor
-    int newfd = 0;        // newly accept()ed socket descriptor
-    struct sockaddr_storage remoteaddr{}; // client address
-    socklen_t addrlen;
-    unsigned char buf[MAXDATASIZE];
-    //struct packet packet1{};
+    int new_fd = 0;        // newly accept()ed socket descriptor
+    struct sigaction sa{};
     string input;
-    const char *in;
-    uint16_t mLength;
-    ssize_t nbytes;
+    struct sockaddr_storage their_addr{};
     char buffer[128];
     size_t buflen = 128;
     GetPrimaryIp(buffer, buflen);
     ofstream outMan("manager.out");
-
-    char remoteIP[INET6_ADDRSTRLEN];
-
+    int id = 0;
+    socklen_t sin_size;
+    char s[INET6_ADDRSTRLEN];
     int yes = 1;        // for setsockopt() SO_REUSEADDR, below
     int rv;
+    ssize_t nbytes;
 
     struct addrinfo hints{}, *ai, *p;
 
-    outMan << "Manager: Binding Socket\n";
+    outMan << "[Manager] Binding Socket" << endl;
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
     if ((rv = getaddrinfo(nullptr, PORT, &hints, &ai)) != 0) {
-        fprintf(stderr, "selectserver: %s\n", gai_strerror(rv));
+        fprintf(stderr, "[Manager] %s\n", gai_strerror(rv));
         exit(1);
     }
 
@@ -105,115 +109,71 @@ int manager::manage(ofstream &ostr) {
 
     // if we got here, it means we didn't get bound
     if (p == nullptr) {
-        fprintf(stderr, "selectserver: failed to bind\n");
+        fprintf(stderr, "[Manager] failed to bind\n");
         exit(2);
     }
 
     freeaddrinfo(ai); // all done with this
 
-    // listen
-    if (listen(listener, 10) == -1) {
+    if (listen(listener, BACKLOG) == -1) {
         perror("listen");
-        exit(3);
+        exit(1);
     }
 
-    // add the listener to the master set
-    FD_SET(listener, &master);
-
-    // keep track of the biggest file descriptor
-    outMan << "Waiting for a connection on: " << buffer << " port: " << PORT << endl;
-
-    // handle new connections
-    addrlen = sizeof remoteaddr;
-    newfd = accept(listener,
-                   (struct sockaddr *) &remoteaddr,
-                   &addrlen);
-
-    if (newfd == -1) {
-        perror("accept");
-    } else {
-        FD_SET(newfd, &master); // add to master set
-        outMan << "Manager: Router Connected\n";
-
-        inet_ntop(remoteaddr.ss_family,
-                  get_in_addr((struct sockaddr *) &remoteaddr),
-                  remoteIP, INET6_ADDRSTRLEN);
+    sa.sa_handler = sigchld_handler; // reap all dead processes
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    if (sigaction(SIGCHLD, &sa, nullptr) == -1) {
+        perror("sigaction");
+        exit(1);
     }
-    for (;;) {
-        uint16_t vCheck = 0;
-        uint16_t lenCheck = 0;
-        if (sendit) {
-            input = "hi";
-            outMan << "Send: " << input << endl;
-            mLength = static_cast<uint16_t>(input.length());
-            lenCheck = htons(static_cast<uint16_t>(mLength));
-            if (mLength > 140) {
-                printf("Input too long\n");
-                sendit = true;
-            } else {
-                in = input.c_str();
-                for (unsigned int i = 0; i < strlen(in); i++) {
-                    buf[i + 4] = (unsigned char) in[i];
-                }
-                buf[0] = 1;
-                buf[1] = 201;
-                buf[3] = 140;
-                if (send(newfd, buf, static_cast<size_t>(mLength + 4), 0) == -1) {
+
+    outMan << "[Manager] waiting for connections..." << endl;
+
+    while (true) {  // main accept() loop
+        sin_size = sizeof their_addr;
+        new_fd = accept(listener, (struct sockaddr *) &their_addr, &sin_size);
+        if (new_fd == -1) {
+            perror("accept");
+            continue;
+        }
+
+        inet_ntop(their_addr.ss_family,
+                  get_in_addr((struct sockaddr *) &their_addr),
+                  s, sizeof s);
+        outMan << "[Manager] got connection from " << s << endl;
+        outMan << "[Manager] Sending id to router " << id << endl;
+        for (int i = 0; i < 2; i++) {
+            if (sendit) {
+                outMan << "[Manager] sending: ID" << endl;
+                if (send(new_fd, "ID", 2, 0) == -1) {
                     perror("send");
-                    exit(6);
-                }
-                memset(buf, 0, sizeof(buf));
-                sendit = false;
-            }
-        } else {
-            // first pull out version number
-            if ((nbytes = recv(newfd, &vCheck, 2, 0)) <= 0) {
-                // got error or connection closed by server
-                if (nbytes == 0) {
-                    // connection closed
-                    outMan << "socket disconnected\n";
-                    exit(5);
-                } else {
-                    //perror("recv");
+                    close(new_fd);
+                    outMan.close();
                     exit(0);
                 }
+                sendit = false;
             } else {
-                vCheck = ntohs(vCheck);
-                if (vCheck != 457) printf("Incorrect version Number.\n");
-            }
-            if ((nbytes = recv(newfd, &lenCheck, 2, 0)) <= 0) {
-                // got error or connection closed by server
-                if (nbytes == 0) {
-                    // connection closed
-                    outMan << "socket disconnected\n";
-                    exit(5);
-                } else {
-                    perror("recv");
-                    exit(6);
-                }
-            } else {
-                // set the message length
-                lenCheck = ntohs(lenCheck);
-            }
-            if ((nbytes = recv(newfd, buf, sizeof(buf), 0)) <= 0) {
-                // got error or connection closed by server
-                if (nbytes == 0) {
-                    // connection closed
-                    outMan << "socket disconnected\n";
-                    exit(5);
-                } else {
-                    perror("recv");
-                    exit(6);
-                }
-            } else {
-                // print the message
-                outMan << "Received: " << buf << endl;
-                memset(buf, 0, sizeof(buf));
                 sendit = true;
+                memset(buffer, 0, sizeof(buffer));
+                if ((nbytes = recv(new_fd, buffer, MAXDATASIZE, 0)) <= 0) {
+                    // got error or connection closed by server
+                    if (nbytes == 0) {
+                        // connection closed
+                        exit(2);
+                    } else {
+                        perror("recv");
+                        exit(6);
+                    }
+                } else {
+                    outMan << "[Manager] recv: " << buffer << endl;
+                }
             }
         }
+        close(new_fd);
     }
 }
+
 
 int check(const string &s) {
     // check that the values are valid as int
@@ -231,13 +191,16 @@ int main(int argc, char **argv) {
     srand(static_cast<unsigned int>(time(nullptr)));
     char *file = nullptr;
     int index, r1n, r2n, costn;
+    // linked list to hold links
+    vector<manager::link> links;
+    // linked list to hold messages
+    vector<manager::msg> mess;
     string r1, r2, cost;
-    bool topoRead = false;
+    bool doneskies = false;
     int status = 0;
     pid_t wpid;
     manager m = manager();
     ofstream ostr(m.killFile);
-
     // check that there is at least one argument before proceeding
     if (argc <= 1) return manager::usage();
     // print out the name of the requested page
@@ -258,18 +221,45 @@ int main(int argc, char **argv) {
         cerr << "File must begin with number of routers" << endl;
     }
     // read the file and pull all topology info, add info to list
-    while (!topoRead) {
+    while (!doneskies) {
         istr >> r1;
         r1n = check(r1);
         if (r1n == -1) {
-            topoRead = true;
+            doneskies = true;
             break;
         }
+        manager::link l;
         istr >> r2;
         r2n = check(r2);
         istr >> cost;
         costn = check(cost);
-        /* TODO do something with the values */
+        l.sourceID = r1n;
+        l.destID = r2n;
+        l.cost = costn;
+
+        links.push_back(l);
+
+        if (istr.fail() && !istr.eof()) {
+            cerr << "file not formatted correctly, exiting." << endl;
+            return -1;
+        }
+    }
+    doneskies = false;
+    // read the file and pull all packet info, add info to list
+    while (!doneskies) {
+        istr >> r1;
+        r1n = check(r1);
+        if (r1n == -1) {
+            doneskies = true;
+            break;
+        }
+        manager::msg p;
+        istr >> r2;
+        r2n = check(r2);
+        p.sourceID = r1n;
+        p.destID = r2n;
+
+        mess.push_back(p);
 
         if (istr.fail() && !istr.eof()) {
             cerr << "file not formatted correctly, exiting." << endl;
