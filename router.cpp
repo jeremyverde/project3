@@ -5,16 +5,19 @@ using namespace std;
 void router::getTime(char *stamp, int len) {
     memset(stamp, 0, sizeof(stamp));
     char timeBuf[len];
+    string tString;
     struct timeval tVal{};
     gettimeofday(&tVal, nullptr);
-    time_t now = tVal.tv_usec;
-    if (strftime(timeBuf, sizeof(timeBuf), "[%F %H:%M:%S]", localtime(&now))) {
+    time_t now = tVal.tv_sec;
+    if (strftime(timeBuf, sizeof(timeBuf), "[%F %X.", localtime(&now))) {
         //cout << timeBuf << endl;
     } else {
         cerr << "Time's broken" << endl;
     }
+    tString = timeBuf;
+    tString.append(to_string(tVal.tv_usec) + "]");
     for (int i = 0; i < len; i++) {
-        stamp[i] = timeBuf[i];
+        stamp[i] = tString[i];
     }
 }
 
@@ -27,7 +30,7 @@ void router::GetPrimaryIp(char *buffer, size_t buflen) {
 
     const char *kGoogleDnsIp = "8.8.8.8";
     uint16_t kDnsPort = 53;
-    struct sockaddr_in serv;
+    struct sockaddr_in serv{};
     memset(&serv, 0, sizeof(serv));
     serv.sin_family = AF_INET;
     serv.sin_addr.s_addr = inet_addr(kGoogleDnsIp);
@@ -36,12 +39,12 @@ void router::GetPrimaryIp(char *buffer, size_t buflen) {
     int err = connect(sock, (const sockaddr *) &serv, sizeof(serv));
     assert(err != -1);
 
-    sockaddr_in name;
+    sockaddr_in name{};
     socklen_t namelen = sizeof(name);
     err = getsockname(sock, (sockaddr *) &name, &namelen);
     assert(err != -1);
 
-    const char *p = inet_ntop(AF_INET, &name.sin_addr, buffer, buflen);
+    const char *p = inet_ntop(AF_INET, &name.sin_addr, buffer, static_cast<socklen_t>(buflen));
     assert(p);
 
     close(sock);
@@ -54,7 +57,7 @@ void router::writeHeader(ofstream &o) {
     o << "Log File Created: " << stamp << endl;
 }
 
-int router::startRouter(ofstream &ostr, const char *port) {
+int router::startRouter(ofstream &ostr) {
     int mypid = getpid();
     string pid = to_string(mypid);
     string file = "router";
@@ -76,8 +79,8 @@ int router::startRouter(ofstream &ostr, const char *port) {
     int yes = 1;        // for setsockopt() SO_REUSEADDR, below
     int status;
     struct addrinfo hints{}, *ai;// will point to the results
-    bool empty = true;
-    bool sendit = false;
+    //bool empty = true;
+    bool sendit = true;
     GetPrimaryIp(buf, sizeof(buf));
     const char *IP = buf;
 

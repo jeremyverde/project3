@@ -31,7 +31,7 @@ void manager::getTime(char *stamp, int len) {
 
 void manager::writeHeader(ofstream &o) {
     char stamp[100];
-    getTime(stamp, sizeof(stamp));
+    manager::getTime(stamp, sizeof(stamp));
     o << "Manager Log File" << endl;
     o << "Log File Created: " << stamp << endl;
 }
@@ -85,21 +85,22 @@ void sigchld_handler(int s) {
 
 int manager::manage(ofstream &ostr, int index) {
     pid_t mypid = getpid();
+    char buffer[MAXDATASIZE];
+    size_t buflen = MAXDATASIZE;
+    GetPrimaryIp(buffer, static_cast<socklen_t>(buflen));
     ostr << mypid << endl;
     ofstream outMan("manager.out");
-    writeHeader(outMan);
+    manager::writeHeader(outMan);
     char stamp[100];
-    getTime(stamp, sizeof(stamp));
-    outMan << stamp << "[Manager] wrote pid to killFile" << endl;
-    bool sendit = true; // keeps track of whether or not it's my turn to send
+    manager::getTime(stamp, sizeof(stamp));
+    outMan << stamp << "[Manager] TCP Server Started" << endl;
+    outMan << stamp << "[Manager] IP: " << buffer << " Port: " << PORT << " Routers: " << index << endl;
+    bool sendit = false; // keeps track of whether or not it's my turn to send
     int listener = 0;     // listening socket descriptor
     int new_fd = 0;        // newly accept()ed socket descriptor
     struct sigaction sa{};
     string input;
     struct sockaddr_storage their_addr{};
-    char buffer[128];
-    size_t buflen = 128;
-    GetPrimaryIp(buffer, static_cast<socklen_t>(buflen));
     int id = 0;
     socklen_t sin_size;
     char s[INET6_ADDRSTRLEN];
@@ -136,7 +137,6 @@ int manager::manage(ofstream &ostr, int index) {
         break;
     }
 
-    // if we got here, it means we didn't get bound
     if (p == nullptr) {
         fprintf(stderr, "[Manager] failed to bind\n");
         exit(2);
@@ -156,7 +156,7 @@ int manager::manage(ofstream &ostr, int index) {
         perror("sigaction");
         exit(1);
     }
-    getTime(stamp, sizeof(stamp));
+    manager::getTime(stamp, sizeof(stamp));
     outMan << stamp << "[Manager] waiting for connections..." << endl;
 
     for (int j = 0; j < index; j++) {  // main accept() loop
@@ -170,20 +170,26 @@ int manager::manage(ofstream &ostr, int index) {
         inet_ntop(their_addr.ss_family,
                   get_in_addr((struct sockaddr *) &their_addr),
                   s, sizeof s);
-        getTime(stamp, sizeof(stamp));
+        manager::getTime(stamp, sizeof(stamp));
         outMan << stamp << "[Manager] got connection from " << s << endl;
-        getTime(stamp, sizeof(stamp));
-        outMan << stamp << "[Manager] Sending id to router " << id++ << endl;
         for (int i = 0; i < 2; i++) {
             if (sendit) {
-                getTime(stamp, sizeof(stamp));
-                outMan << stamp << "[Manager] sending: ID" << endl;
-                if (send(new_fd, "ID", 2, 0) == -1) {
+                memset(&buffer, 0, sizeof(buffer));
+                string b = to_string(id);
+                for (int k = 0; k < b.length(); k++) {
+                    buffer[k] = b[k];
+                }
+                manager::getTime(stamp, sizeof(stamp));
+                outMan << stamp << "[Manager] Sending id to router " << id << endl;
+                manager::getTime(stamp, sizeof(stamp));
+                outMan << stamp << "[Manager] sending: " << buffer << endl;
+                if (send(new_fd, buffer, sizeof(buffer), 0) == -1) {
                     perror("send");
                     close(new_fd);
                     outMan.close();
                     exit(0);
                 }
+                id++;
                 sendit = false;
             } else {
                 sendit = true;
@@ -198,7 +204,7 @@ int manager::manage(ofstream &ostr, int index) {
                         exit(6);
                     }
                 } else {
-                    getTime(stamp, sizeof(stamp));
+                    manager::getTime(stamp, sizeof(stamp));
                     outMan << stamp << "[Manager] recv: " << buffer << endl;
                 }
             }
@@ -310,7 +316,7 @@ int main(int argc, char **argv) {
         } else if (pid == 0) { // This is the child process
             router r = router();
             sleep(2);
-            r.startRouter(ostr, PORT);
+            r.startRouter(ostr);
             exit(0);
         } else if (pid > 0) {
             // do manager stuff (only stuff for each router)
@@ -326,7 +332,6 @@ int main(int argc, char **argv) {
         istrKill >> killID;
         if (!istrKill.eof()) {
             int killnum = check(killID);
-            cout << "[Demo] making sure PID: " << killID << " is dead" << endl;
             kill(killnum, 0);
         }
     }

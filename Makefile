@@ -10,4 +10,4 @@ manager.o: manager.cpp router.cpp
 	$(CXX) $(INCLUDES) -c manager.cpp router.cpp
 
 clean:
-	rm -f manager.o manage *.out
+	rm -f manager.o router.o manager *.out

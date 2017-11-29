@@ -23,11 +23,12 @@ using namespace std;
 
 class router {
 public:
-    int startRouter(ofstream &o, const char *port);
+    int startRouter(ofstream &o);
 
     void getTime(char *stamp, int len);
 
     void writeHeader(ofstream &o);
+
     void GetPrimaryIp(char *buffer, size_t buflen);
 
     bool debug = true;
