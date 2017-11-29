@@ -2,17 +2,21 @@
 
 using namespace std;
 
-bool debug = true;
-
-// get sockaddr, IPv4 or IPv6:
-void *router::get_in_addr(struct sockaddr *sa) {
-    if (sa->sa_family == AF_INET) {
-        return &(((struct sockaddr_in *) sa)->sin_addr);
+void router::getTime(char *stamp, int len) {
+    memset(stamp, 0, sizeof(stamp));
+    char timeBuf[len];
+    struct timeval tVal{};
+    gettimeofday(&tVal, nullptr);
+    time_t now = tVal.tv_usec;
+    if (strftime(timeBuf, sizeof(timeBuf), "[%F %H:%M:%S]", localtime(&now))) {
+        //cout << timeBuf << endl;
+    } else {
+        cerr << "Time's broken" << endl;
     }
-
-    return &(((struct sockaddr_in6 *) sa)->sin6_addr);
+    for (int i = 0; i < len; i++) {
+        stamp[i] = timeBuf[i];
+    }
 }
-
 
 // based on example at: https://stackoverflow.com/questions/212528/get-the-ip-address-of-the-machine
 void router::GetPrimaryIp(char *buffer, size_t buflen) {
@@ -43,9 +47,23 @@ void router::GetPrimaryIp(char *buffer, size_t buflen) {
     close(sock);
 }
 
+void router::writeHeader(ofstream &o) {
+    char stamp[100];
+    getTime(stamp, sizeof(stamp));
+    o << "Router: " << getpid() << " Log File" << endl;
+    o << "Log File Created: " << stamp << endl;
+}
+
 int router::startRouter(ofstream &ostr, const char *port) {
-    pid_t mypid = getpid();
-    //cout << "writing pid: " << mypid << " to kill file." << endl;
+    int mypid = getpid();
+    string pid = to_string(mypid);
+    string file = "router";
+    file.append(pid + ".out");
+    ofstream out(file);
+    writeHeader(out);
+    char stamp[100];
+    getTime(stamp, sizeof(stamp));
+    out << stamp << "[Router: " << mypid << "] writing pid to kill file." << endl;
     ostr << mypid << endl;
 
     // code based largely off of beej's guide example program, see README
@@ -67,7 +85,8 @@ int router::startRouter(ofstream &ostr, const char *port) {
     hints.ai_family = AF_UNSPEC;     // don't care IPv4 or IPv6
     hints.ai_socktype = SOCK_STREAM; // TCP stream sockets
     hints.ai_flags = AI_PASSIVE;     // fill in my IP for me
-    cout << "[Router] connecting to IP: " << buf << " Port: " << PORT << endl;
+    getTime(stamp, sizeof(stamp));
+    out << stamp << "[Router: " << mypid << "] connecting to IP: " << buf << " Port: " << PORT << endl;
     if ((status = getaddrinfo(IP, PORT, &hints, &ai)) != 0) {
         fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
         exit(1);
@@ -80,10 +99,11 @@ int router::startRouter(ofstream &ostr, const char *port) {
     }
 
     if ((connect(sok, ai->ai_addr, ai->ai_addrlen)) < 0) {
-        cerr << "connection failed" << endl;
+        cerr << "[Router] connection failed" << endl;
         return -1;
     } else {
-        cout << "[Router] Connected." << endl;
+        getTime(stamp, sizeof(stamp));
+        out << stamp << "[Router: " << mypid << "] Connected." << endl;
     }
 
     freeaddrinfo(ai);
@@ -92,10 +112,11 @@ int router::startRouter(ofstream &ostr, const char *port) {
         if (sendit) {
             memset(&buf, 0, sizeof(buf));
             if (debug) {
-                cout << "[Router] sending: PORT" << endl;
+                getTime(stamp, sizeof(stamp));
+                out << stamp << "[Router: " << mypid << "] sending: PORT" << endl;
             }
             if (send(sok, "PORT", 4, 0) == -1) {
-                perror("send failed");
+                perror("[Router: ] send failed");
                 exit(6);
             }
             sendit = false;
@@ -106,8 +127,10 @@ int router::startRouter(ofstream &ostr, const char *port) {
                 // got error or connection closed by server
                 if (nbytes == 0) {
                     // connection closed
-                    if (debug)
-                        printf("socket disconnected\n");
+                    if (debug) {
+                        getTime(stamp, sizeof(stamp));
+                        out << stamp << "[Router: " << mypid << "] socket disconnected" << endl;
+                    }
                     return 0;
                 } else {
                     perror("recv");
@@ -115,7 +138,8 @@ int router::startRouter(ofstream &ostr, const char *port) {
                 }
             } else {
                 if (debug) {
-                    cout << "[Router] recv: " << buf << endl;
+                    getTime(stamp, sizeof(stamp));
+                    out << stamp << "[Router: " << mypid << "] recv: " << buf << endl;
                 }
             }
         }
