@@ -18,6 +18,8 @@
 #include <netdb.h>
 #include <cassert>
 #include <chrono>
+#include <fcntl.h>
+
 
 using namespace std;
 
@@ -53,7 +55,15 @@ public:
         int destID = 0;
     };
 
+    struct node {
+        const char *id;
+        char *port;
+        int fd = 0;
+    };
+
     static int usage();
+
+    static void fillPacket(char &c);
 
     static void *get_in_addr(struct sockaddr *sa);
 
