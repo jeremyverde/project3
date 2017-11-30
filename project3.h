@@ -18,6 +18,8 @@
 #include <netdb.h>
 #include <cassert>
 #include <chrono>
+#include <fcntl.h>
+
 
 using namespace std;
 
@@ -60,6 +62,8 @@ public:
     };
 
     static int usage();
+
+    static void fillPacket(char &c);
 
     static void *get_in_addr(struct sockaddr *sa);
 

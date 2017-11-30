@@ -1,4 +1,3 @@
-#include <fcntl.h>
 #include "project3.h"
 
 using namespace std;
@@ -162,8 +161,12 @@ int router::startRouter(ofstream &ostr) {
     int yes = 1;        // for setsockopt() SO_REUSEADDR, below
     int status;
     struct addrinfo hints{}, *ai;// will point to the results
+
     bool ready = false;
+    bool done = false;
+    bool quit = false;
     bool sendit = true;
+
     GetPrimaryIp(buf, sizeof(buf));
     const char *IP = buf;
     string portnum;
@@ -203,16 +206,58 @@ int router::startRouter(ofstream &ostr) {
     // Test if the socket is in non-blocking mode:
     if (fcntl(sok, F_GETFL) & O_NONBLOCK) {
         // socket is non-blocking
-        cout << "socket is not blocking, set to blocking mode" << endl;
+        cout << "[Router: " << mypid << "] socket is not blocking, set to blocking mode" << endl;
     } else {
-        cout << "socket is blocking" << endl;
+        // cout << "[Router: " << mypid << "] socket is blocking" << endl;
     }
 
     freeaddrinfo(ai);
 
+    string b;
     while (true) {
         if (ready) {
-            exit(0);
+            memset(&buf, 0, sizeof(buf));
+            b = "REDY";
+            for (int k = 0; k < b.length(); k++) {
+                buf[k] = b[k];
+            }
+            getTime(stamp, sizeof(stamp));
+            out << stamp << "[Router: " << mypid << "] sending: " << buf << endl;
+            if (send(sok, buf, sizeof(buf), 0) == -1) {
+                perror("[Router: ] send failed");
+                exit(6);
+            }
+            sendit = false;
+            ready = false;
+            //exit(0);
+        } else if (done) {
+            memset(&buf, 0, sizeof(buf));
+            b = "DONE";
+            for (int k = 0; k < b.length(); k++) {
+                buf[k] = b[k];
+            }
+            getTime(stamp, sizeof(stamp));
+            out << stamp << "[Router: " << mypid << "] sending: " << buf << endl;
+            if (send(sok, buf, sizeof(buf), 0) == -1) {
+                perror("[Router: ] send failed");
+                exit(6);
+            }
+            sendit = false;
+            done = false;
+        } else if (quit) {
+            memset(&buf, 0, sizeof(buf));
+            b = "QTAK";
+            for (int k = 0; k < b.length(); k++) {
+                buf[k] = b[k];
+            }
+            getTime(stamp, sizeof(stamp));
+            out << stamp << "[Router: " << mypid << "] sending: " << buf << endl;
+            if (send(sok, buf, sizeof(buf), 0) == -1) {
+                perror("[Router: ] send failed");
+                exit(6);
+            }
+            sleep(1);
+            return 0;
         } else {
             if (sendit) {
                 memset(&buf, 0, sizeof(buf));
@@ -228,7 +273,7 @@ int router::startRouter(ofstream &ostr) {
                     exit(6);
                 }
                 sendit = false;
-                sleep(1);
+                //sleep(1);
             } else {
                 ready = false;
                 memset(buf, 0, sizeof(buf));
@@ -238,21 +283,43 @@ int router::startRouter(ofstream &ostr) {
                         // connection closed
                         if (debug) {
                             getTime(stamp, sizeof(stamp));
-                            out << stamp << "[Router: " << mypid << "] socket disconnected" << endl;
+                            cerr << "[Router: " << mypid << "] socket disconnected. Buf: " << buf << endl;
                         }
                         return 0;
                     } else {
-                        printf("recv error: %s\n", strerror(errno));
+                        cerr << "[Router: " << mypid << "] recv error: " << strerror(errno) << " buf: " << buf << endl;
                         exit(6);
                     }
                 } else {
                     getTime(stamp, sizeof(stamp));
                     out << stamp << "[Router: " << mypid << "] recv: " << buf << endl;
                     packet = buf;
-                    if (packet == "ack") {
-                        sendit = true;
+                    cout << "[Router: " << mypid << "] packet: " << packet << endl;
+                    string in = packet.substr(0, 4);
+                    string id = packet.substr(4, 5);
+                    if (in == "INFO") {
+                        //sendit = true;
+                        /*TODO actually do the get ready stuff when info comes*/
                         ready = true;
-                        exit(0);
+                        cout << "[Router: " << mypid << "] is id: " << id << endl;
+                        //exit(0);
+                    } else if (in == "AKRD") {
+                        //sendit = true;
+                        /*TODO actually do the get LB stuff when info comes*/
+                        ready = true;
+                        cout << "[Router: " << mypid << "] is pretending to do LB... " << endl;
+                    } else if (in == "AKLB") {
+                        /*TODO actually do the get LB stuff when info comes*/
+                        ready = true;
+                        cout << "[Router: " << mypid << "] is pretending to do Dijk... " << endl;
+                    } else if (in == "AKDK") {
+                        /*TODO actually do the get LB stuff when info comes*/
+                        done = true;
+                        cout << "[Router: " << mypid << "] is pretending to send messages... " << endl;
+                    } else if (in == "QUIT") {
+                        /*TODO actually do the get LB stuff when info comes*/
+                        quit = true;
+                        cout << "[Router: " << mypid << "] is quitting " << endl;
                     }
                 }
             }
