@@ -22,15 +22,6 @@ void router::getTime(char *stamp, int len) {
 }
 
 // get sockaddr, IPv4 or IPv6:
-void *router::get_in_addr(struct sockaddr *sa) {
-    if (sa->sa_family == AF_INET) {
-        return &(((struct sockaddr_in *) sa)->sin_addr);
-    }
-
-    return &(((struct sockaddr_in6 *) sa)->sin6_addr);
-}
-
-// get sockaddr, IPv4 or IPv6:
 int router::get_in_port(struct sockaddr *sa) {
     if (sa->sa_family == AF_INET) {
         return ntohs(((struct sockaddr_in *) sa)->sin_port);
@@ -133,6 +124,12 @@ void router::GetPrimaryIp(char *buffer, size_t buflen) {
     close(sock);
 }
 
+string router::fillPacket(string &c, string &id) {
+    string packet = move(c);
+    packet.append(id);
+    return packet;
+}
+
 void router::writeHeader(ofstream &o) {
     char stamp[100];
     getTime(stamp, sizeof(stamp));
@@ -173,10 +170,9 @@ int router::startRouter(ofstream &ostr) {
     string packet;
 
     // start up UDP socket
-
     udpListen(out, portnum);
 
-
+    // make sure the manager spins up first
     sleep(1);
 
     memset(&hints, 0, sizeof hints); // make sure the struct is empty
@@ -213,11 +209,12 @@ int router::startRouter(ofstream &ostr) {
 
     freeaddrinfo(ai);
 
-    string b;
+    string b, in, id;
     while (true) {
         if (ready) {
             memset(&buf, 0, sizeof(buf));
             b = "REDY";
+            b = fillPacket(b, myID);
             for (int k = 0; k < b.length(); k++) {
                 buf[k] = b[k];
             }
@@ -233,6 +230,7 @@ int router::startRouter(ofstream &ostr) {
         } else if (done) {
             memset(&buf, 0, sizeof(buf));
             b = "DONE";
+            b = fillPacket(b, myID);
             for (int k = 0; k < b.length(); k++) {
                 buf[k] = b[k];
             }
@@ -247,6 +245,7 @@ int router::startRouter(ofstream &ostr) {
         } else if (quit) {
             memset(&buf, 0, sizeof(buf));
             b = "QTAK";
+            b = fillPacket(b, myID);
             for (int k = 0; k < b.length(); k++) {
                 buf[k] = b[k];
             }
@@ -273,7 +272,6 @@ int router::startRouter(ofstream &ostr) {
                     exit(6);
                 }
                 sendit = false;
-                //sleep(1);
             } else {
                 ready = false;
                 memset(buf, 0, sizeof(buf));
@@ -294,30 +292,27 @@ int router::startRouter(ofstream &ostr) {
                     getTime(stamp, sizeof(stamp));
                     out << stamp << "[Router: " << mypid << "] recv: " << buf << endl;
                     packet = buf;
-                    cout << "[Router: " << mypid << "] packet: " << packet << endl;
-                    string in = packet.substr(0, 4);
-                    string id = packet.substr(4, 5);
+                    in = packet.substr(0, 4);
+                    id = packet.substr(4, 5);
                     if (in == "INFO") {
-                        //sendit = true;
                         /*TODO actually do the get ready stuff when info comes*/
                         ready = true;
+                        myID = id;
                         cout << "[Router: " << mypid << "] is id: " << id << endl;
-                        //exit(0);
                     } else if (in == "AKRD") {
-                        //sendit = true;
-                        /*TODO actually do the get LB stuff when info comes*/
+                        /*TODO actually do the LB stuff when info comes*/
                         ready = true;
                         cout << "[Router: " << mypid << "] is pretending to do LB... " << endl;
                     } else if (in == "AKLB") {
-                        /*TODO actually do the get LB stuff when info comes*/
+                        /*TODO actually do the Dijkstra stuff when info comes*/
                         ready = true;
                         cout << "[Router: " << mypid << "] is pretending to do Dijk... " << endl;
                     } else if (in == "AKDK") {
-                        /*TODO actually do the get LB stuff when info comes*/
+                        /*TODO actually do the Message stuff when info comes*/
                         done = true;
                         cout << "[Router: " << mypid << "] is pretending to send messages... " << endl;
                     } else if (in == "QUIT") {
-                        /*TODO actually do the get LB stuff when info comes*/
+                        /*TODO actually do the Quit stuff when info comes*/
                         quit = true;
                         cout << "[Router: " << mypid << "] is quitting " << endl;
                     }

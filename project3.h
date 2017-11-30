@@ -27,19 +27,20 @@ class router {
 public:
     int startRouter(ofstream &o);
 
-    static void *get_in_addr(struct sockaddr *sa);
-
     int get_in_port(struct sockaddr *sa);
 
     void udpListen(ofstream &o, string &s);
 
     void getTime(char *stamp, int len);
 
+    string fillPacket(string &c, string &id);
+
     void writeHeader(ofstream &o);
 
     void GetPrimaryIp(char *buffer, size_t buflen);
 
     bool debug = true;
+    string myID;
 };
 
 class manager {
@@ -56,23 +57,28 @@ public:
     };
 
     struct node {
-        const char *id;
-        char *port;
+        int id = 0;
+        int port = 0;
         int fd = 0;
     };
 
     static int usage();
 
-    static void fillPacket(char &c);
+    static string fillPacket(string &c, string &id);
 
-    static void *get_in_addr(struct sockaddr *sa);
+    static node *getRouter(int i, vector<node> &Rs);
+
+    //static int getSome(int i, fd_set &m,ofstream &o);
+
+    //static int giveSome(string type, int i,fd_set &m,ofstream &o);
 
     static void getTime(char *tB, int len);
 
     static void writeHeader(ofstream &o);
 
-    static int manage(ofstream &ostr, int i);
+    int manage(ofstream &ostr, int i);
 
+    vector<node> routers;
     const char *killFile = "kill.txt";
     int index{};
 };
