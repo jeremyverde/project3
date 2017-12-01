@@ -1,3 +1,4 @@
+
 #include "project3.h"
 
 using namespace std;
@@ -7,79 +8,115 @@ router::router() {
     nLinks = 0;
 }
 
-// get sockaddr, IPv4 or IPv6:
-int router::get_in_port(struct sockaddr *sa) {
-    if (sa->sa_family == AF_INET) {
-        return ntohs(((struct sockaddr_in *) sa)->sin_port);
-    }
-
-    return ntohs(((struct sockaddr_in6 *) sa)->sin6_port);
-}
-
+//based on example at: https://www.daniweb.com/programming/software-development/threads/478595/how-to-use-select-in-udp-sockets-to-read-and-write-from-client-to-server
 void router::udpListen(ofstream &o, string &portnum) {
-    int sockfd = 0;
-    struct addrinfo hints{}, *servinfo, *p;
+    o << endl << "Starting Limited Broadcast\n" << endl;
+    char stamp[100];
+
+    fd_set master{};
+    fd_set read_fds{};
+    fd_set writefds{};
+    int fdmax;
+    struct timeval tv{};
+    int socket_fd = 0;
+    ssize_t bytes_read;
+
+    unsigned int address_length;
+    char recieve_data[MAXDATASIZE], send_data[MAXDATASIZE];
+    struct sockaddr *client_address{};
+    if ((socket_fd = socket(AF_INET, SOCK_DGRAM, 0)) == -1) {
+        perror("Router: socket");
+    }
+    int flags = fcntl(socket_fd, F_GETFL);
+    flags |= O_NONBLOCK;
+    fcntl(socket_fd, F_SETFL, flags);
+    //fcntl(socket_fd, F_SETFL, O_NONBLOCK); //set socket to non-blocking
+
+    // wait until either socket has data ready to be recv()d (timeout 2 secs)
+    tv.tv_sec = 2;
+    int mypid = getpid();
+    struct addrinfo udphints{}, theirhints{}, *theirinfo{}, *servinfo, *p;
     int rv;
-    ssize_t numbytes;
-    struct sockaddr_storage their_addr{};
-    char buf[MAXDATASIZE];
-    socklen_t addr_len;
+    //ssize_t numbytes;
+    //struct sockaddr_storage their_addr{};
+    char udpbuf[MAXDATASIZE];
+    //socklen_t addr_len;
     char s[INET6_ADDRSTRLEN];
-    GetPrimaryIp(buf, sizeof(buf));
-    string port;
+    GetPrimaryIp(udpbuf, sizeof(udpbuf));
 
-    memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_UNSPEC; // set to AF_INET to force IPv4
-    hints.ai_socktype = SOCK_DGRAM;
-    //hints.ai_flags = AI_PASSIVE; // use my IP
+    memset(&udphints, 0, sizeof udphints);
+    udphints.ai_family = AF_UNSPEC; // set to AF_INET to force IPv4
+    udphints.ai_socktype = SOCK_DGRAM;
+    udphints.ai_flags = AI_PASSIVE; // use my IP
 
-    if ((rv = getaddrinfo(buf, to_string(getpid()).c_str(), &hints, &servinfo)) != 0) {
+    FD_SET(socket_fd, &read_fds);
+    FD_SET(socket_fd, &writefds);
+
+    if ((rv = getaddrinfo(nullptr, portnum.c_str(), &udphints, &servinfo)) != 0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
         exit(1);
     }
-    // loop through all the results and bind to the first we can
-    for (p = servinfo; p != nullptr; p = p->ai_next) {
-        if ((sockfd = socket(p->ai_family, p->ai_socktype,
-                             p->ai_protocol)) == -1) {
-            perror("listener: socket");
-            continue;
+
+    if (bind(socket_fd, servinfo->ai_addr, servinfo->ai_addrlen) == -1) {
+        close(socket_fd);
+        perror("Router: bind");
+    }
+    address_length = sizeof(struct sockaddr);
+    fdmax = socket_fd;
+    for (int a = 0; a < 2; a++) {
+        read_fds = master; // copy it
+        //cout << "try select..." << endl;
+        int rec = select(fdmax + 1, &read_fds, &writefds, nullptr, &tv);
+        if (rec == -1) {
+            perror("[Router] select");
+            exit(4);
+        } else if (rec == 0) {
+            printf("Timeout occurred!  No data after 2 seconds.\n");
+        } else {
+            //cout << "select went through... " << endl;
+            for (int i = 0; i <= fdmax; i++) {
+                if (FD_ISSET(i, &read_fds)) {
+                    o << "[Router: " << mypid << "] reading " << endl;
+                    //FD_CLR(socket_fd, &read_fds);
+                    for (auto &link : links) {
+                        if ((rv = getaddrinfo(nullptr, to_string(link.dPort).c_str(), &theirhints, &theirinfo)) != 0) {
+                            fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+                            exit(1);
+                        } else {
+                            client_address = theirinfo->ai_addr;
+                            bytes_read = recvfrom(socket_fd, recieve_data, MAXDATASIZE, 0,
+                                                  (struct sockaddr *) &client_address,
+                                                  &address_length);
+                            if (bytes_read > 0) {
+                                manager::getTime(stamp, sizeof(stamp));
+                                o << stamp << "[Router: " << mypid << "] recv: " << recieve_data << " from: "
+                                  << link.dPort << endl;
+                            }
+                        }
+                    }
+                } else if (FD_ISSET(i, &writefds)) {
+                    //o << "[Router: " << mypid << "] sending " << endl;
+                    for (int k = 0; k < adjSend.length(); k++) {
+                        send_data[k] = adjSend[k];
+                    }
+                    for (auto &link : links) {
+                        if ((rv = getaddrinfo(nullptr, to_string(link.dPort).c_str(), &theirhints, &theirinfo)) != 0) {
+                            fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+                            exit(1);
+                        } else {
+                            client_address = theirinfo->ai_addr;
+                            sendto(socket_fd, send_data, strlen(send_data), 0, client_address,
+                                   sizeof(struct sockaddr));
+                            manager::getTime(stamp, sizeof(stamp));
+                            o << stamp << "[Router: " << mypid << "] send: " << send_data << " to: " << link.dPort
+                              << endl;
+                        }
+                    }
+                }
+            }
+            //close(socket_fd);
         }
-        int pN = get_in_port((struct sockaddr *) &servinfo);
-        port = to_string(pN);
-        //cout << "port number: " << port << endl;
-        if (bind(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
-            close(sockfd);
-            perror("listener: bind");
-            continue;
-        }
-        portnum = port;
-        break;
     }
-/*
-    if (p == nullptr) {
-        fprintf(stderr, "listener: failed to bind socket\n");
-        exit(2);
-    }
-
-    freeaddrinfo(servinfo);
-
-    addr_len = sizeof their_addr;
-    if ((numbytes = recvfrom(sockfd, buf, MAXDATASIZE - 1, 0,
-                             (struct sockaddr *) &their_addr, &addr_len)) == -1) {
-        perror("recvfrom");
-        exit(1);
-    }
-
-    printf("listener: got packet from %s\n",
-           inet_ntop(their_addr.ss_family,
-                     manager::get_in_addr((struct sockaddr *) &their_addr),
-                     s, sizeof s));
-    printf("listener: packet is %zi bytes long\n", numbytes);
-    buf[numbytes] = '\0';
-    printf("listener: packet contains \"%s\"\n", buf);
-
-    //close(sockfd);
-    */
 }
 
 // based on example at: https://stackoverflow.com/questions/212528/get-the-ip-address-of-the-machine
@@ -128,36 +165,7 @@ void router::writeHeader(ofstream &o) {
 
 int router::startRouter(ofstream &ostr) {
     int mypid = getpid();
-    // UDP SECTION
-    int sockfd = 0;
-    struct addrinfo udphints{}, *servinfo, *p;
-    int rv;
-    ssize_t numbytes;
-    struct sockaddr_storage their_addr{};
-    char udpbuf[MAXDATASIZE];
-    socklen_t addr_len;
-    char s[INET6_ADDRSTRLEN];
-    GetPrimaryIp(udpbuf, sizeof(udpbuf));
-    string port;
-
-    memset(&udphints, 0, sizeof udphints);
-    udphints.ai_family = AF_UNSPEC; // set to AF_INET to force IPv4
-    udphints.ai_socktype = SOCK_DGRAM;
-    udphints.ai_flags = AI_PASSIVE; // use my IP
-    port = to_string((mypid % 6997) + 1100);
-
-    if ((rv = getaddrinfo(nullptr, port.c_str(), &udphints, &servinfo)) != 0) {
-        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
-        exit(1);
-    }
-
-    if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) == -1) {
-        perror("Router: socket");
-    }
-    if (bind(sockfd, servinfo->ai_addr, servinfo->ai_addrlen) == -1) {
-        close(sockfd);
-        perror("Router: bind");
-    }
+    string port = to_string((mypid % 6997) + 1100);
 
     // TCP SECTION
     string pid = to_string(mypid);
@@ -170,7 +178,6 @@ int router::startRouter(ofstream &ostr) {
     out << stamp << "[Router: " << mypid << "] writing pid to kill file." << endl;
     ostr << mypid << endl;
     out << endl << "[Router] my port is: " << port << endl << endl;
-
     // code based largely off of beej's guide example program, see README
     int sok = 0;
     char buf[MAXDATASIZE];
@@ -185,6 +192,7 @@ int router::startRouter(ofstream &ostr) {
     bool done = false;
     bool quit = false;
     bool sendit = true;
+    //bool broadcasting = true;
 
     GetPrimaryIp(buf, sizeof(buf));
     const char *IP = buf;
@@ -320,7 +328,7 @@ int router::startRouter(ofstream &ostr) {
                         ready = true;
                         myID = id;
                         adj = packet.substr(6);
-
+                        adjSend = adj;
                         if (adj.length() >= 1) {
                             parseLinks(adj);
                         } else {
@@ -332,7 +340,8 @@ int router::startRouter(ofstream &ostr) {
                     } else if (in == "AKRD") {
                         /*TODO actually do the LB stuff when info comes*/
                         ready = true;
-                        cout << "[Router: " << mypid << "] is pretending to do LB... " << endl;
+                        cout << "[Router: " << mypid << "] is performing LB... " << endl;
+                        udpListen(out, port);
                     } else if (in == "AKLB") {
                         /*TODO actually do the Dijkstra stuff when info comes*/
                         ready = true;
@@ -354,38 +363,29 @@ int router::startRouter(ofstream &ostr) {
 void router::parseLinks(string s) {
     manager::link temp;
     string toss;
-    int sN = 0;
-    int dN = 0;
-    int co = 0;
-    int po = 0;
     istringstream ss(s);
 
+    int n = 0;
     while (!ss.eof()) {
         ss >> toss;
-        if (!ss >> sN) {
-            cerr << "went bad on sN" << endl;
-            exit(1);
+        //cout << "toss: " << toss << endl;
+        if (toss == "|") {
+            ss >> toss;
+            n = 0;
         }
-        if (!ss >> dN) {
-            cerr << "went bad on dN" << endl;
-            exit(1);
+        else if (n == 0) temp.sourceID = atoi(toss.c_str());
+        else if (n == 1) temp.destID = atoi(toss.c_str());
+        else if (n == 2) temp.cost = atoi(toss.c_str());
+        else if (n == 3) {
+            temp.dPort = atoi(toss.c_str());
+
+            if (nLinks >= links.size()) {
+                links.resize(links.size() * 2);
+            }
+            links.at(nLinks++) = temp;
+            n = 0;
         }
-        if (!ss >> co) {
-            cerr << "went bad on co" << endl;
-            exit(1);
-        }
-        if (!ss >> po) {
-            cerr << "went bad on po" << endl;
-            exit(1);
-        }
-        temp.sourceID = sN;
-        temp.destID = dN;
-        temp.cost = co;
-        temp.dPort = po;
-        if (nLinks >= links.size()) {
-            links.resize(links.size() * 2);
-        }
-        links.at(nLinks++) = temp;
+        n++;
     }
     links.resize(nLinks);
 }
