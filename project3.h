@@ -9,6 +9,7 @@
 #include <sys/time.h>
 #include <iostream>
 #include <zconf.h>
+#include <utility>
 #include <wait.h>
 #include <vector>
 #include <sstream>
@@ -51,7 +52,7 @@ public:
 
     node *getRouter(int i);
 
-    static void *get_in_addr(struct sockaddr *sa);
+    //static void *get_in_addr(struct sockaddr *sa);
 
     //static int getSome(int i, fd_set &m,ofstream &o);
 
@@ -80,7 +81,7 @@ public:
 
     int startRouter(ofstream &o);
 
-    int get_in_port(struct sockaddr *sa);
+    //int get_in_port(struct sockaddr *sa);
 
     void udpListen(ofstream &o, string &s);
 
@@ -96,6 +97,7 @@ public:
     // structure to hold links
     vector<manager::link> links;
     string myID;
+    string adjSend;
     unsigned long nLinks;
 
 };

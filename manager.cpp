@@ -1,5 +1,3 @@
-#include <utility>
-
 #include "project3.h"
 
 
@@ -83,6 +81,7 @@ void sigchld_handler(int s) {
     errno = saved_errno;
 }
 
+/*
 // get sockaddr, IPv4 or IPv6:
 void *manager::get_in_addr(struct sockaddr *sa) {
     if (sa->sa_family == AF_INET) {
@@ -91,7 +90,7 @@ void *manager::get_in_addr(struct sockaddr *sa) {
 
     return &(((struct sockaddr_in6 *) sa)->sin6_addr);
 }
-
+*/
 int manager::manage(ofstream &ostr) {
     pid_t mypid = getpid();
     char buffer[MAXDATASIZE];
@@ -339,6 +338,7 @@ int manager::manage(ofstream &ostr) {
                             reading = true;
                         }
                     } else if (!LBDone) {
+                        sleep(2); // give the routers time to finish sending
                         if ((nbytes = recv(i, buffer, sizeof(buffer), 0)) <= 0) {
                             // got error or connection closed by server
                             if (nbytes == 0) {
@@ -546,7 +546,7 @@ string manager::getLinks(int id, int i) {
             }
         }
         if (link.sourceID == id) {
-            s.append("|");
+            s.append(" | ");
             s.append(to_string(link.sourceID));
             s.append(" ");
             s.append(to_string(link.destID));
@@ -565,7 +565,7 @@ string manager::getLinks(int id, int i) {
                 cerr << "[Manager] no such router, exiting." << endl;
                 exit(3);
             }
-            s.append("|");
+            s.append(" | ");
             s.append(to_string(link.destID));
             s.append(" ");
             s.append(to_string(link.sourceID));
