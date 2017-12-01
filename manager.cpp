@@ -5,6 +5,13 @@
 
 using namespace std;
 
+manager::manager() {
+    links = vector<link>(11);
+    mess = vector<msg>(11);
+    routers = vector<node>(11);
+    index = 0;
+}
+
 // Print the correct usage in case of user syntax error.
 int manager::usage() {
     cout << "Usage: to start router demo, run \"./manager <file name>\"" << endl;
@@ -76,7 +83,16 @@ void sigchld_handler(int s) {
     errno = saved_errno;
 }
 
-int manager::manage(ofstream &ostr, int index) {
+// get sockaddr, IPv4 or IPv6:
+void *manager::get_in_addr(struct sockaddr *sa) {
+    if (sa->sa_family == AF_INET) {
+        return &(((struct sockaddr_in *) sa)->sin_addr);
+    }
+
+    return &(((struct sockaddr_in6 *) sa)->sin6_addr);
+}
+
+int manager::manage(ofstream &ostr) {
     pid_t mypid = getpid();
     char buffer[MAXDATASIZE];
     size_t buflen = MAXDATASIZE;
@@ -209,13 +225,13 @@ int manager::manage(ofstream &ostr, int index) {
                             outMan << stamp << "[Manager] Router " << c << " connected" << endl;
                             temp.fd = new_fd;
                             temp.id = c;
-                            routers.push_back(temp);
+                            routers.at(c) = temp;
                             c++;
                         }
                     }
                 } else { //ugly, but its threadsafe enough for now
                     memset(&buffer, 0, sizeof(buffer));
-                    curNode = getRouter(i, routers);
+                    curNode = getRouter(i);
                     if (curNode == nullptr) {
                         // couldn't find a matching router
                         return -1;
@@ -237,9 +253,9 @@ int manager::manage(ofstream &ostr, int index) {
                             count++;
                             packet = buffer;
                             rIN = packet.substr(0, 4);
-                            rID = packet.substr(4, 5);
                             manager::getTime(stamp, sizeof(stamp));
-                            outMan << stamp << "[Manager] recv: " << rIN << " from router " << rID << endl;
+                            outMan << stamp << "[Manager] recv: " << rIN << " from router " << id << endl;
+                            curNode->port = atoi(rIN.c_str());
                             if (count == index) {
                                 manager::getTime(stamp, sizeof(stamp));
                                 outMan << stamp << "[Manager] All routers connected" << endl;
@@ -251,6 +267,9 @@ int manager::manage(ofstream &ostr, int index) {
                     } else if (!allInfo) {
                         string t = "INFO";
                         t = fillPacket(t, id);
+                        packet = getLinks(curNode->id, i);
+                        //cout << "[Manager] packet: " << packet << endl;
+                        t.append(packet);
                         for (int k = 0; k < t.length(); k++) {
                             buffer[k] = t[k];
                         }
@@ -285,7 +304,7 @@ int manager::manage(ofstream &ostr, int index) {
                             count++;
                             packet = buffer;
                             rIN = packet.substr(0, 4);
-                            rID = packet.substr(4, 5);
+                            rID = packet.substr(5, 1);
                             manager::getTime(stamp, sizeof(stamp));
                             outMan << stamp << "[Manager] recv: " << rIN << " from router " << rID << endl;
                         }
@@ -302,7 +321,7 @@ int manager::manage(ofstream &ostr, int index) {
                         for (int k = 0; k < t.length(); k++) {
                             buffer[k] = t[k];
                         }
-                        sleep(1);
+                        //sleep(1);
                         if (send(i, buffer, sizeof(buffer), 0) == -1) {
                             close(i);
                             cerr << "[Manager] router closed prematurely, exiting" << endl;
@@ -334,7 +353,7 @@ int manager::manage(ofstream &ostr, int index) {
                             count++;
                             packet = buffer;
                             rIN = packet.substr(0, 4);
-                            rID = packet.substr(4, 5);
+                            rID = packet.substr(5, 1);
                             manager::getTime(stamp, sizeof(stamp));
                             outMan << stamp << "[Manager] recv: " << rIN << " from router " << rID << endl;
                             if (count == index) {
@@ -352,7 +371,7 @@ int manager::manage(ofstream &ostr, int index) {
                         for (int k = 0; k < t.length(); k++) {
                             buffer[k] = t[k];
                         }
-                        sleep(1);
+                        //sleep(1);
                         if (send(i, buffer, sizeof(buffer), 0) == -1) {
                             close(i);
                             cerr << "[Manager] router closed prematurely, exiting" << endl;
@@ -384,7 +403,7 @@ int manager::manage(ofstream &ostr, int index) {
                             count++;
                             packet = buffer;
                             rIN = packet.substr(0, 4);
-                            rID = packet.substr(4, 5);
+                            rID = packet.substr(5, 1);
                             manager::getTime(stamp, sizeof(stamp));
                             outMan << stamp << "[Manager] recv: " << rIN << " from router " << rID << endl;
                             if (count == index) {
@@ -402,7 +421,7 @@ int manager::manage(ofstream &ostr, int index) {
                         for (int k = 0; k < t.length(); k++) {
                             buffer[k] = t[k];
                         }
-                        sleep(1);
+                        //sleep(1);
                         if (send(i, buffer, sizeof(buffer), 0) == -1) {
                             close(i);
                             cerr << "[Manager] router closed prematurely, exiting" << endl;
@@ -434,7 +453,7 @@ int manager::manage(ofstream &ostr, int index) {
                             count++;
                             packet = buffer;
                             rIN = packet.substr(0, 4);
-                            rID = packet.substr(4, 5);
+                            rID = packet.substr(5, 1);
                             manager::getTime(stamp, sizeof(stamp));
                             outMan << stamp << "[Manager] recv: " << rIN << " from router " << rID << endl;
                             if (count == index) {
@@ -452,7 +471,7 @@ int manager::manage(ofstream &ostr, int index) {
                         for (int k = 0; k < t.length(); k++) {
                             buffer[k] = t[k];
                         }
-                        sleep(1);
+                        //sleep(1);
                         if (send(i, buffer, sizeof(buffer), 0) == -1) {
                             close(i);
                             cerr << "[Manager] router closed prematurely, exiting" << endl;
@@ -484,7 +503,7 @@ int manager::manage(ofstream &ostr, int index) {
                             count++;
                             packet = buffer;
                             rIN = packet.substr(0, 4);
-                            rID = packet.substr(4, 5);
+                            rID = packet.substr(5, 1);
                             manager::getTime(stamp, sizeof(stamp));
                             outMan << stamp << "[Manager] recv: " << rIN << " from router " << rID << endl;
                             if (count == index) {
@@ -502,17 +521,61 @@ int manager::manage(ofstream &ostr, int index) {
 
 string manager::fillPacket(string &c, string &id) {
     string packet = move(c);
+    packet.append("|");
     packet.append(id);
     return packet;
 }
 
-manager::node *manager::getRouter(int i, vector<node> &Rs) {
-    for (unsigned long x = 0; x < Rs.size(); x++) {
-        if (Rs.at(x).fd == i) {
-            return &Rs.at(x);
+manager::node *manager::getRouter(int i) {
+    for (auto &R : routers) {
+        if (R.fd == i) {
+            return &R;
         }
     }
     return nullptr;
+}
+
+string manager::getLinks(int id, int i) {
+    string s;
+    node *dest = nullptr;
+    for (auto &link : links) {
+        for (auto &R : routers) {
+            if (R.id == link.destID) {
+                dest = &R;
+                break;
+            }
+        }
+        if (link.sourceID == id) {
+            s.append("|");
+            s.append(to_string(link.sourceID));
+            s.append(" ");
+            s.append(to_string(link.destID));
+            s.append(" ");
+            s.append(to_string(link.cost));
+            s.append(" ");
+            s.append(to_string(dest->port));
+        } else if (link.destID == id) {
+            for (auto &R : routers) {
+                if (R.id == link.sourceID) {
+                    dest = &R;
+                    break;
+                }
+            }
+            if (dest == nullptr) {
+                cerr << "[Manager] no such router, exiting." << endl;
+                exit(3);
+            }
+            s.append("|");
+            s.append(to_string(link.destID));
+            s.append(" ");
+            s.append(to_string(link.sourceID));
+            s.append(" ");
+            s.append(to_string(link.cost));
+            s.append(" ");
+            s.append(to_string(dest->port));
+        }
+    }
+    return s;
 }
 
 /*int manager::getSome(int i,fd_set &m,ofstream &o){
@@ -579,10 +642,6 @@ int main(int argc, char **argv) {
     srand(static_cast<unsigned int>(time(nullptr)));
     char *file = nullptr;
     int r1n, r2n, costn;
-    // linked list to hold links
-    vector<manager::link> links;
-    // linked list to hold messages
-    vector<manager::msg> mess;
     string r1, r2, cost;
     //bool doneskies = false;
     int status = 0;
@@ -609,6 +668,7 @@ int main(int argc, char **argv) {
         cerr << "[Demo] File must begin with number of routers" << endl;
     }
     // read the file and pull all topology info, add info to list
+    unsigned long nLinks = 0;
     while (true) {
         istr >> r1;
         r1n = check(r1);
@@ -625,15 +685,21 @@ int main(int argc, char **argv) {
         l.destID = r2n;
         l.cost = costn;
 
-        links.push_back(l);
+        if (nLinks >= m.links.size()) {
+            m.links.resize(m.links.size() * 2);
+        }
+        m.links.at(nLinks) = l;
+        nLinks++;
 
         if (istr.fail() && !istr.eof()) {
             cerr << "[Demo] file not formatted correctly, exiting." << endl;
             return -1;
         }
     }
+    m.links.resize(nLinks);
     //doneskies = false;
     // read the file and pull all packet info, add info to list
+    unsigned long nMess = 0;
     while (true) {
         istr >> r1;
         r1n = check(r1);
@@ -647,13 +713,18 @@ int main(int argc, char **argv) {
         p.sourceID = r1n;
         p.destID = r2n;
 
-        mess.push_back(p);
-
+        if (nMess >= m.mess.size()) {
+            m.mess.resize(m.mess.size() * 2);
+        }
+        m.mess.at(nMess) = p;
+        nMess++;
         if (istr.fail() && !istr.eof()) {
             cerr << "[Demo] file not formatted correctly, exiting." << endl;
             return -1;
         }
     }
+    m.mess.resize(nMess);
+
     istr.close();
 
     for (int i = 0; i < m.index; i++) {
@@ -664,14 +735,14 @@ int main(int argc, char **argv) {
             exit(1);
         } else if (pid == 0) { // This is the child process
             auto *r = new router();
-            sleep(2);
+            sleep(1);
             r->startRouter(ostr);
             exit(0);
         } else if (pid > 0) {
             // do manager stuff (only stuff for each router)
         }
     }
-    m.manage(ostr, m.index);
+    m.manage(ostr);
     while ((wait(&status)) > 0);
     cout << "[Demo] Demo complete, closing up" << endl;
     ostr.close();

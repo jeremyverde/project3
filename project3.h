@@ -23,32 +23,15 @@
 
 using namespace std;
 
-class router {
-public:
-    int startRouter(ofstream &o);
-
-    int get_in_port(struct sockaddr *sa);
-
-    void udpListen(ofstream &o, string &s);
-
-    void getTime(char *stamp, int len);
-
-    string fillPacket(string &c, string &id);
-
-    void writeHeader(ofstream &o);
-
-    void GetPrimaryIp(char *buffer, size_t buflen);
-
-    bool debug = true;
-    string myID;
-};
-
 class manager {
 public:
+    manager();
+
     struct link {
         int sourceID = 0;
         int destID = 0;
         int cost = 0;
+        int dPort = 0;
     };
 
     struct msg {
@@ -66,7 +49,9 @@ public:
 
     static string fillPacket(string &c, string &id);
 
-    static node *getRouter(int i, vector<node> &Rs);
+    node *getRouter(int i);
+
+    static void *get_in_addr(struct sockaddr *sa);
 
     //static int getSome(int i, fd_set &m,ofstream &o);
 
@@ -74,13 +59,45 @@ public:
 
     static void getTime(char *tB, int len);
 
+    string getLinks(int id, int i);
+
     static void writeHeader(ofstream &o);
 
-    int manage(ofstream &ostr, int i);
+    int manage(ofstream &ostr);
 
+    // structure to hold links
+    vector<manager::link> links;
+    // structure to hold messages
+    vector<manager::msg> mess;
     vector<node> routers;
     const char *killFile = "kill.txt";
     int index{};
+};
+
+class router {
+public:
+    router();
+
+    int startRouter(ofstream &o);
+
+    int get_in_port(struct sockaddr *sa);
+
+    void udpListen(ofstream &o, string &s);
+
+    string fillPacket(string &c, string &id);
+
+    void writeHeader(ofstream &o);
+
+    void parseLinks(string s);
+
+    void GetPrimaryIp(char *buffer, size_t buflen);
+
+    bool debug = true;
+    // structure to hold links
+    vector<manager::link> links;
+    string myID;
+    unsigned long nLinks;
+
 };
 
 #endif //PROJECT3_PROJECT3_H
